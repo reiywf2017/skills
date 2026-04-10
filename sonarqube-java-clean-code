@@ -1,0 +1,518 @@
+---
+name: sonarqube-java-clean-code
+description: '生成符合 SonarQube 规范的 Java 代码。在编写、编辑或审查 Java 代码时应用此技能，确保代码通过 SonarQube 静态分析。覆盖异常处理、空值安全、资源管理、安全性、代码复杂度、命名规范和日志规范。'
+---
+
+<!--
+  ============================================================================
+  SKILL: sonarqube-java-clean-code
+  编写思路说明（不参与 Agent 推理，仅供维护者阅读）
+  ============================================================================
+
+  【整体策略】
+  本 Skill 的目标不是罗列全部 600+ 条 SonarQube Java 规则，而是聚焦于
+  AI 生成代码时最常违反的规则。通过以下策略实现最大效果：
+
+  1. 按违反频率排序 —— 高频违规类别在前，确保 Agent 优先关注
+  2. 提供 ❌/✅ 对比 —— Agent 对具体示例的遵循率远高于抽象规则描述
+  3. 内嵌自检清单 —— 让 Agent 在生成后自我校验，形成闭环
+  4. 只用 name + description —— 不用任何可选字段，保证 Claude Code 和
+     GitHub Copilot 双平台兼容
+
+  【description 设计】
+  - 长度约 280 字符，在 1024 字符上限内
+  - 包含触发动词："编写"、"编辑"、"审查"
+  - 包含核心关键词：SonarQube、Java、规范
+  - 列出主要覆盖领域，帮助 Agent 精准匹配
+
+  【兼容性考量】
+  - 仅使用 name + description 两个必需字段（agentskills.io 规范）
+  - 不使用 allowed-tools、metadata 等可选字段
+  - 所有注释用 HTML <!-- --> 包裹，不影响 Markdown 渲染
+  - 目录名与 name 字段完全一致：sonarqube-java-clean-code
+
+  【规则选取依据】
+  基于 AI 生成 Java 代码的典型违反模式，参考 SonarQube Community 版本
+  内置规则集（Bug / Vulnerability / Security Hotspot / Code Smell 四大类）。
+  每条规则附带 SonarQube Rule ID，便于 Agent 精确识别。
+  ============================================================================
+-->
+
+# 符合 SonarQube 规范的 Java 代码生成
+
+<!--
+  【章节设计思路】
+  标题直接点明目标。开篇一句话说明 Skill 用途，让 Agent 快速建立上下文。
+  不用冗长的背景介绍，因为 Agent 的上下文窗口资源有限。
+-->
+
+本技能确保所有生成的 Java 代码能通过 SonarQube 静态分析。在编写或编辑 Java 源文件时，请应用以下所有规则。
+
+## 核心生成原则
+
+<!--
+  【编写思路】
+  这 6 条原则是"宪法级"规则，优先级最高。它们概括了 AI 生成代码时
+  最容易出问题的宏观方向。后续章节是这些原则的具体展开。
+  采用祈使句，指令感强，遵循率高。
+-->
+
+1. **始终使用 try-with-resources** 处理所有 `AutoCloseable` 资源 — 永远不要依赖手动 `close()` 调用
+2. **永远不要捕获通用 `Exception`** — 始终捕获尽可能具体的异常类型
+3. **假定每个引用都可能为 null** — 在方法入口处验证参数，使用 `Objects.requireNonNull()` 或显式空值检查
+4. **永远不要在 SQL 中拼接字符串** — 始终使用 `PreparedStatement` 进行参数化查询
+5. **方法不超过 20 行，认知复杂度不超过 15** — 尽早提取辅助方法
+6. **使用 SLF4J 参数化日志** — 永远不要在日志语句中使用字符串拼接
+
+## 异常与资源管理
+
+<!--
+  【编写思路】
+  这是 AI 生成代码违反最多的类别，排在第一位。
+  包含 5 条最高频规则，每条都有 ❌/✅ 对比示例。
+  SonarQube Rule ID 帮助 Agent 在推理时建立规则映射。
+-->
+
+### S2095 — 资源必须被关闭
+
+```java
+// ❌ 错误：如果在 close() 之前发生异常，资源会泄漏
+InputStream is = new FileInputStream(path);
+String content = new String(is.readAllBytes());
+is.close();
+
+// ✅ 正确：try-with-resources 保证资源被关闭
+try (InputStream is = new FileInputStream(path)) {
+    String content = new String(is.readAllBytes());
+}
+```
+
+### S112 — 不要捕获通用 Exception
+
+```java
+// ❌ 错误：吞掉了包括 RuntimeException 在内的所有异常
+try {
+    fileservice.copy(source, target);
+} catch (Exception e) {
+    log.error("Copy failed", e);
+}
+
+// ✅ 正确：捕获具体声明的异常
+try {
+    fileservice.copy(source, target);
+} catch (IOException e) {
+    log.error("Copy failed", e);
+}
+```
+
+### S108 — 不要留空 catch 块
+
+```java
+// ❌ 错误：静默吞掉异常
+try {
+    config.load();
+} catch (IOException e) {
+    // ignore
+}
+
+// ✅ 正确：至少记录异常日志
+try {
+    config.load();
+} catch (IOException e) {
+    log.warn("加载配置失败，使用默认值", e);
+}
+```
+
+### S1148 — 使用日志记录器，不要使用 printStackTrace
+
+```java
+// ❌ 错误：写入 stdout/stderr，没有结构化日志
+} catch (SQLException e) {
+    e.printStackTrace();
+}
+
+// ✅ 正确：使用 SLF4J 日志记录器
+} catch (SQLException e) {
+    log.error("数据库操作失败", e);
+}
+```
+
+### S2139 — 异常参数不应单独传递
+
+```java
+// ❌ 错误：在日志调用前进行字符串拼接（总是会被求值）
+log.debug("Processing user " + user.getId() + " failed: " + e.getMessage());
+
+// ✅ 正确：参数化消息，仅在 DEBUG 级别启用时才会求值
+log.debug("Processing user {} failed", user.getId(), e);
+```
+
+## 空值安全
+
+<!--
+  【编写思路】
+  NPE 是 Java 中最常见的运行时异常，AI 生成代码时经常遗漏 null 检查。
+  S2259 是 SonarQube 中触发率最高的 Bug 规则之一。
+  同时纳入 Optional 的正确用法——AI 经常滥用 Optional。
+-->
+
+### S2259 — 空指针不得被解引用
+
+```java
+// ❌ 错误：调用方法前没有空值检查
+public String formatUser(User user) {
+    return user.getName().toUpperCase();
+}
+
+// ✅ 正确：在入口处验证
+public String formatUser(User user) {
+    Objects.requireNonNull(user, "user must not be null");
+    return user.getName().toUpperCase();
+}
+
+// ✅ 同样正确：为可能为 null 的结果返回 Optional
+public Optional<String> findDisplayName(User user) {
+    return Optional.ofNullable(user)
+                   .map(User::getName)
+                   .map(String::toUpperCase);
+}
+```
+
+### S2637 — 不要在创建 Optional 前检查空值
+
+```java
+// ❌ 错误：在 Optional 之前做了多余的空值检查
+public Optional<String> getName(User user) {
+    if (user != null) {
+        return Optional.ofNullable(user.getName());
+    }
+    return Optional.empty();
+}
+
+// ✅ 正确：Optional.ofNullable 已经处理了 null
+public Optional<String> getName(User user) {
+    return Optional.ofNullable(user).map(User::getName);
+}
+```
+
+### S1155 — 使用 isEmpty() 而非 size() > 0
+
+```java
+// ❌ 错误：冗余的比较方式
+if (items.size() > 0) { ... }
+if (items.size() == 0) { ... }
+
+// ✅ 正确：使用 isEmpty()
+if (!items.isEmpty()) { ... }
+if (items.isEmpty()) { ... }
+```
+
+## 安全与注入防护
+
+<!--
+  【编写思路】
+  安全类规则虽然在数量上不是最多，但每条都可能是 Critical 级别漏洞。
+  AI 生成代码时对安全上下文不敏感，是 SonarQube Security Hotspot 的重灾区。
+  这里覆盖了 SQL 注入、硬编码凭据、弱加密、命令注入四个最高危场景。
+-->
+
+### S2077 / S3649 — SQL 注入与硬编码凭据
+
+```java
+// ❌ 错误：在 SQL 中拼接字符串
+String sql = "SELECT * FROM users WHERE name = '" + userName + "'";
+statement.executeQuery(sql);
+
+// ❌ 错误：硬编码密码
+private String dbPassword = "admin123";
+
+// ✅ 正确：参数化查询 + 外部化凭据
+String sql = "SELECT * FROM users WHERE name = ?";
+try (PreparedStatement ps = connection.prepareStatement(sql)) {
+    ps.setString(1, userName);
+    ps.executeQuery();
+}
+// 凭据从环境变量或密钥管理服务加载
+```
+
+### S2070 — 不要使用弱加密算法
+
+```java
+// ❌ 错误：MD5 / SHA-1 已被破解
+MessageDigest md = MessageDigest.getInstance("MD5");
+MessageDigest sha1 = MessageDigest.getInstance("SHA-1");
+
+// ✅ 正确：使用 SHA-256 或更强的算法
+MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
+```
+
+### S2076 — 操作系统命令注入
+
+```java
+// ❌ 错误：用户输入直接传入命令
+Runtime.getRuntime().exec("ping " + userInput);
+
+// ✅ 正确：使用 ProcessBuilder 并分离参数
+ProcessBuilder pb = new ProcessBuilder("ping", sanitizedHost);
+Process process = pb.start();
+```
+
+### S2245 — 安全敏感操作应使用 SecureRandom
+
+```java
+// ❌ 错误：可预测的伪随机数生成器用于令牌
+Random random = new Random();
+String token = String.valueOf(random.nextInt());
+
+// ✅ 正确：使用加密强度高的随机数
+SecureRandom secureRandom = new SecureRandom();
+byte[] tokenBytes = new byte[32];
+secureRandom.nextBytes(tokenBytes);
+String token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes);
+```
+
+## 代码结构与复杂度
+
+<!--
+  【编写思路】
+  AI 倾向于生成"全能方法"——一个方法干所有事，导致认知复杂度超标。
+  这里设定了明确的量化阈值（方法不超过 20 行、参数不超过 7 个、
+  认知复杂度不超过 15），让 Agent 有可执行的标准。
+-->
+
+### S3776 — 方法的认知复杂度不应过高
+
+```java
+// ❌ 错误：单个方法中深层嵌套的逻辑
+public void processOrder(Order order) {
+    if (order != null) {
+        if (order.getItems() != null) {
+            for (Item item : order.getItems()) {
+                if (item.isAvailable()) {
+                    if (item.getPrice() > 0) {
+                        // ... 更多嵌套
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ✅ 正确：提取方法、使用卫语句、提前返回
+public void processOrder(Order order) {
+    Objects.requireNonNull(order, "order must not be null");
+    List<Item> items = order.getItems();
+    if (items == null || items.isEmpty()) {
+        return;
+    }
+    items.stream()
+         .filter(Item::isAvailable)
+         .filter(item -> item.getPrice() > 0)
+         .forEach(this::processItem);
+}
+
+private void processItem(Item item) {
+    // 针对单个项的聚焦逻辑
+}
+```
+
+### S107 — 方法的参数不应过多
+
+```java
+// ❌ 错误：8 个参数
+public User createUser(String name, String email, String phone,
+                       String address, String city, String zip,
+                       String country, int age) { ... }
+
+// ✅ 正确：使用参数对象或构建器
+public User createUser(CreateUserRequest request) { ... }
+
+// 或使用构建器模式
+User user = User.builder()
+    .name(name)
+    .email(email)
+    .phone(phone)
+    .build();
+```
+
+### S1481 — 未使用的局部变量应被移除
+
+```java
+// ❌ 错误：已声明但从未使用
+public void process(String input) {
+    String normalized = input.trim();  // 之后从未引用
+    return input.toLowerCase();
+}
+
+// ✅ 正确：移除或使用该变量
+public void process(String input) {
+    return input.trim().toLowerCase();
+}
+```
+
+## 集合、泛型与字符串处理
+
+<!--
+  【编写思路】
+  这一类规则 AI 违反率中等，但修复成本很低。
+  原始类型、字符串循环拼接、暴露内部可变状态是三个最常见的子类。
+  给出具体示例帮助 Agent 养成"本能反应"。
+-->
+
+### S2293 — 不要使用原始类型
+
+```java
+// ❌ 错误：原始类型丧失了类型安全
+List items = new ArrayList();
+Map config = new HashMap();
+
+// ✅ 正确：始终使用泛型与钻石操作符
+List<String> items = new ArrayList<>();
+Map<String, Object> config = new HashMap<>();
+```
+
+### S1643 — 不要在循环中拼接字符串
+
+```java
+// ❌ 错误：每次迭代都创建新的 String 对象
+String result = "";
+for (String item : items) {
+    result += item;
+}
+
+// ✅ 正确：使用 StringBuilder
+StringBuilder sb = new StringBuilder();
+for (String item : items) {
+    sb.append(item);
+}
+String result = sb.toString();
+
+// ✅ 同样正确：使用 String.join 或 Collectors.joining
+String result = String.join("", items);
+```
+
+### S2384 — 不要暴露内部可变状态
+
+```java
+// ❌ 错误：调用方可以直接修改内部列表
+public List<String> getRoles() {
+    return this.roles;
+}
+
+// ✅ 正确：返回不可修改的视图
+public List<String> getRoles() {
+    return Collections.unmodifiableList(this.roles);
+}
+
+// ✅ 同样正确：返回防御性副本
+public List<String> getRoles() {
+    return new ArrayList<>(this.roles);
+}
+```
+
+### S1192 — 字符串字面量不应被重复
+
+```java
+// ❌ 错误：相同字符串出现多次
+if ("ACTIVE".equals(status)) { ... }
+log.info("Status is ACTIVE");
+
+// ✅ 正确：提取为常量
+private static final String STATUS_ACTIVE = "ACTIVE";
+
+if (STATUS_ACTIVE.equals(status)) { ... }
+log.info("Status is {}", STATUS_ACTIVE);
+```
+
+## 日志与命名规范
+
+<!--
+  【编写思路】
+  日志和命名问题虽然不是功能性 Bug，但 SonarQube Code Smell 中占比很高。
+  AI 经常使用 System.out.println 或非参数化日志，需要明确纠正。
+  命名规范部分简明扼要，避免过度展开。
+-->
+
+### S106 / S1148 — 使用 SLF4J，不要使用 System.out 或 System.err
+
+```java
+// ❌ 错误
+System.out.println("处理已开始");
+System.err.println("错误: " + message);
+
+// ✅ 正确
+log.info("处理已开始");
+log.error("错误: {}", message);
+```
+
+### S2629 — 使用参数化日志，不要使用字符串拼接
+
+```java
+// ❌ 错误：即使日志级别未启用也会进行拼接求值
+log.debug("User " + userId + " performed " + action + " on " + resource);
+log.info(String.format("Result: %s", result));
+
+// ✅ 正确：参数化方式——仅在对应级别启用时才求值
+log.debug("User {} performed {} on {}", userId, action, resource);
+log.info("Result: {}", result);
+```
+
+### 命名规范汇总
+
+<!--
+  【编写思路】
+  命名规则不需要大量示例，用表格快速传达即可。
+  这类规则 AI 违反率较低，但偶尔出现驼峰命名不规范。
+-->
+
+| 元素 | 规范 | 示例 |
+|---|---|---|
+| 类 / 接口 | PascalCase | `UserService`、`OrderProcessor` |
+| 方法 / 变量 | camelCase | `findByEmail`、`totalCount` |
+| 常量 | UPPER_SNAKE_CASE | `MAX_RETRY_COUNT` |
+| 包名 | 全小写 | `com.example.orderservice` |
+| 布尔型 getter | `is`/`has`/`should` 前缀 | `isActive()`、`hasPermission()` |
+
+## 自检清单
+
+<!--
+  【编写思路】
+  自检清单是本 Skill 的核心差异化设计。通过让 Agent 在生成代码后
+  逐条检查，形成"生成 → 校验 → 修正"的闭环。
+  清单按违反频率从高到低排列，覆盖前面所有章节的关键规则。
+  Agent 在生成 Java 代码后，应逐条过一遍这个清单。
+-->
+
+在向用户展示任何 Java 代码之前，请验证以下**所有**项：
+
+- [ ] 所有 `AutoCloseable` 资源使用了 try-with-resources（S2095）
+- [ ] 没有 catch 块捕获通用 `Exception` — 仅捕获具体类型（S112）
+- [ ] 没有空 catch 块 — 至少记录异常日志（S108）
+- [ ] 没有使用 `printStackTrace()` — 改用 SLF4J 日志记录器（S1148）
+- [ ] 所有方法参数在需要时已进行空值验证（S2259）
+- [ ] SQL 中没有字符串拼接 — 所有查询已参数化（S2077）
+- [ ] 没有硬编码的密码、API 密钥或密钥（S2068）
+- [ ] 没有使用 MD5、SHA-1、DES 等弱算法（S2070）
+- [ ] 安全敏感场景中没有使用 `java.util.Random` — 改用 `SecureRandom`（S2245）
+- [ ] 所有集合使用了泛型，没有原始类型（S2293）
+- [ ] 循环中没有字符串拼接 — 使用 `StringBuilder`（S1643）
+- [ ] 日志语句使用 `{}` 占位符，而非字符串拼接（S2629）
+- [ ] 没有使用 `System.out.println` 或 `System.err.println`（S106）
+- [ ] 方法长度不超过 20 行，认知复杂度不超过 15（S3776）
+- [ ] 没有未使用的局部变量或导入（S1481）
+- [ ] 没有直接暴露可变的内部状态 — 返回不可修改视图或副本（S2384）
+
+如果任何一项未通过，请在展示代码前进行修正。
+
+## 参考资料
+
+<!--
+  【编写思路】
+  提供权威参考链接，让需要深入了解的维护者或 Agent 有据可查。
+  不在正文中展开所有 600+ 条规则，保持 Skill 精简。
+-->
+
+- [SonarQube Java 规则](https://rules.sonarsource.com/java/)
+- [SonarQube 规则分类](https://docs.sonarsource.com/sonarqube/latest/user-guide/rules/)
+- [OWASP Top 10](https://owasp.org/www-project-top-ten/)
+- [Agent Skills 规范](https://agentskills.io/specification)
